@@ -64,18 +64,18 @@ def generate_latent_points(W, H, n_samples, M=0, SD=10): #Generates random noise
     z_input = np.array(z_input)
     return z_input
 
-#Load trained eZ-Generator model as eZ_model
-eZ_model = keras.saving.load_model('')
-def generate_meZ(eZ_model, W, H, n_samples, M=0, SD=10): #Generates synthetic structured noise meZ
+#Load trained Super-Noise-Generator model as GSN_model
+GSN_model = keras.saving.load_model('')
+def generate_mZs(GSN_model, W, H, n_samples, M=0, SD=10): #Generates synthetic structured noise meZ
     z_input = []
     for i in range(0, n_samples):
         x_input = np.random.normal(M, SD, size=(W,H))
         z_input.append(x_input)
     z_input = np.array(z_input)
-    z_input = eZ_model.predict(z_input)
+    z_input = GSN_model.predict(z_input)
     return z_input #meZ
 
-def generate_mI(eZ_model, g_model, W, H, n_samples): #Generates synthetic images mI
+def generate_mI(GSN_model, g_model, W, H, n_samples): #Generates synthetic images mI
     z_input = generate_meZ(eZ_model, W, H, n_samples)
     images = g_model.predict(z_input)
     return images #mI
@@ -91,8 +91,8 @@ def generator_loss(fake_output):
     return -fake_loss
 
 #For Perceptual loss
-def feature_matching_loss(d_real_features, d_fake_features):
-    return tf.reduce_mean(tf.abs(d_real_features - d_fake_features))
+def feature_matching_loss(real_features, fake_features):
+    return tf.reduce_mean(tf.abs(real_features - fake_features))
 
 def gradient_penalty(d_model, real_images, fake_images):
     batch_size = tf.shape(real_images)[0]
@@ -106,7 +106,7 @@ def gradient_penalty(d_model, real_images, fake_images):
     fake_images = tf.cast(fake_images, tf.float32)
 
     alpha = tf.random.uniform(shape=[batch_size, 1, 1, 1], minval=0., maxval=1.)
-    alpha = tf.cast(alpha, real_images.dtype)  # <--- important!
+    alpha = tf.cast(alpha, real_images.dtype) 
 
     interpolated = real_images + alpha * (fake_images - real_images)
 
@@ -120,7 +120,7 @@ def gradient_penalty(d_model, real_images, fake_images):
     return gp
     
 ##############################################################################################################################################
-#Build eGenerator and eDescriminator. Varient; GAN-Dense-Wloss. **For Patch varient, uncomment patch output in Descriminator and comment FCL block**
+#Build SL-Generator and SL-Descriminator. Varient; SLGAN-Dense-Wloss. **For Patch varient, uncomment patch output in Descriminator and comment FCL block**
 def Generator(W, H, n_classes=3): #eGenerator
     in_lat = Input(shape=(W, H, 1)) 
 
@@ -194,6 +194,7 @@ def Discriminator(input_shape): #eDescriminator
     
     #Patch output
     #x = Conv2D(1, 4, strides=1, padding='same')(x)  
+    
     #FCL
     x = Flatten()(x)
     x = SpectralNormalization(Dense(16))(x)
@@ -204,7 +205,7 @@ def Discriminator(input_shape): #eDescriminator
     return tf.keras.Model(inp, x)
     
 ##############################################################################################################################################
-#Initilize eGenerator and eDescriminator
+#Initilize SL-Generator and SL-Descriminator
 g_model = Generator(40, 32, 1)
 g_model.summary()
 
@@ -212,7 +213,7 @@ d_model = Discriminator((160,128,1))
 d_model.summary()
 
 ##############################################################################################################################################
-#Main eGAN training loop. Varient: eGAN-Dense-Wloss. ***For All-loss varient, uncomment all code line from here***
+#Main SL-GAN training loop. Varient: SLGAN-Dense-Wloss. ***For All-loss varient, uncomment all code line from here***
 D_optimizer = Adam(learning_rate=0.00005, beta_1=0.0, beta_2=0.9)
 G_optimizer = Adam(learning_rate=0.00001, beta_1=0.0, beta_2=0.9)
 d_total_loss = []
@@ -226,7 +227,7 @@ mixed_precision.set_global_policy('mixed_float16')
 #vgg.trainable = False
 data = pd.DataFrame(columns = ['d_total_loss', 'g_total_loss'])#, 'W_loss', 'FML_loss', 'E_loss'])
 ext_model.trainable = False
-def train_FL(g_model, d_model, eZ_model, real_img, W, H, n_epochs=100, n_batch=20, last_chk_point=0, folder='eGAN'):
+def train_FL(g_model, d_model, GSN_model, real_img, W, H, n_epochs=100, n_batch=20, last_chk_point=0, folder='SLGAN'):
     bat_per_epo = int(real_img.shape[0] / n_batch)
     half_batch = int(n_batch / 2)
     #feature_extractor = Model(inputs=vgg.input, outputs=vgg.get_layer('block3_conv2').output, trainable=False) 
@@ -237,7 +238,7 @@ def train_FL(g_model, d_model, eZ_model, real_img, W, H, n_epochs=100, n_batch=2
             d_model.trainable = True  
 
             X_real = load_real_samples(real_img, half_batch)
-            X_fake = generate_mI(eZ_model, g_model, W, H, half_batch)
+            X_fake = generate_mI(GSN_model, g_model, W, H, half_batch)
 
             for _ in range(6):
                 with tf.GradientTape() as discriminator_tape:
@@ -255,7 +256,7 @@ def train_FL(g_model, d_model, eZ_model, real_img, W, H, n_epochs=100, n_batch=2
 
 ####Train Generator--------------------------------------------------------------------------------------------------------------             
             X_real = load_real_samples(real_img, n_batch)
-            h_input = generate_meZ(eZ_model, W, H, n_batch)
+            h_input = generate_mZs(GSN_model, W, H, n_batch)
 
             with tf.GradientTape() as tape:
                 d_model.trainable = False
@@ -305,7 +306,7 @@ def train_FL(g_model, d_model, eZ_model, real_img, W, H, n_epochs=100, n_batch=2
             
         if (i+1)%5 == 0:
             data.to_csv(date+'/log.csv', index=True)
-            z_input = generate_meZ(eZ_model, W, H, 10)
+            z_input = generate_mZs(GSN_model, W, H, 10)
             X  = g_model.predict(z_input)
             plt.imsave(date+'/'+str(i+1)+'_epochs_image.png', np.squeeze(X[0], axis=-1), cmap='grey')
 
@@ -330,7 +331,7 @@ H = 32
 n_epochs= 3000
 n_batch=50
 last_chk_point=0
-folder='eGAN_Dense_Wloss' #Text given here is used for creating new folder name where the models will be saved
+folder='SLGAN_Dense_Wloss' #Text given here is used for creating new folder name where the models will be saved
 
-train_FL(g_model, d_model, eZ_model, real_img, W, H, n_epochs, n_batch, last_chk_point, folder)
+train_FL(g_model, d_model, GSN_model, real_img, W, H, n_epochs, n_batch, last_chk_point, folder)
 
