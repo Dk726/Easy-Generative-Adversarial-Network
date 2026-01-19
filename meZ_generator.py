@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[ ]:
-
 
 # Import all dependencies
 from matplotlib import pyplot as plt
@@ -56,7 +51,7 @@ def load_real_samples(real_img, half_batch):
     X_real = real_img[select]
     return X_real
 
-def generate_latent_points(W, H, n_samples, M=0, SD=10):
+def generate_latent_points(W, H, n_samples, M=0, SD=10): #Random noise
     z_input = []
     for i in range(0, n_samples):
         x_input = np.random.normal(M, SD, size=(W,H))
@@ -69,7 +64,7 @@ def generate_fake_samples(g_model, W, H, n_samples):
     images = g_model.predict(z_input)
     return images
 
-def generate_helper_latents(h_model, real_imgs):
+def generate_helper_latents(h_model, real_imgs): #h_model is the extractor model
     h_imgs = h_model.predict(real_imgs)
     return h_imgs
 
@@ -109,8 +104,8 @@ def gradient_penalty(d_model, real_images, fake_images):
     return gp
 
 ##############################################################################################################################################
-#Build eZ-Generator, eZ-Descriminator and Extractor
-def Generator(W, H): #eZ-Generator
+#Build SN-Generator, SN-Descriminator and Extractor
+def Generator(W, H): #SN-Generator
     in_lat = Input(shape=(W, H, 1)) 
 
     C3 = Conv2D(128, (3,3), padding='same', kernel_initializer='he_normal')(in_lat)
@@ -143,7 +138,7 @@ def Generator(W, H): #eZ-Generator
     model = Model(in_lat, out_layer)
     return model 
 
-def Discriminator(in_shape=(40,32,1)): #eZ-Descriminator
+def Discriminator(in_shape=(40,32,1)): #SN-Descriminator
     in_image = Input(shape=in_shape) 
     
     fe = Conv2D(64, (3,3), strides=(2,2), padding='same')(in_image)
@@ -195,19 +190,19 @@ e_model.summary()
 e_model.save('baseline ext_model.keras')
 e_model = keras.saving.load_model('baseline ext_model.keras')
 ##############################################################################################################################################
-#Employ Extractor to creat eZ. eZ will be the real samples for producing synthetic structured noise µeZ. High Importance!!!
+#Employ Extractor to creat Zs. Zs will be the real samples for producing synthetic structured noise µZs. High Importance!!!
 real_img = generate_helper_latents(e_model, real_img)
 
 #############################################################################################################################################
-# Main training loop for eZ-Generator and ez-Descriminator
+# Main training loop for SN-Generator and SN-Descriminator
 D_optimizer = Adam(learning_rate=0.00005, beta_1=0.0, beta_2=0.9)
 G_optimizer = Adam(learning_rate=0.00005, beta_1=0.0, beta_2=0.9)
 d_total_loss = []
 G_total_loss = []
 
-mixed_precision.set_global_policy('mixed_float16')
+mixed_precision.set_global_policy('mixed_float16') #Optional
 data = pd.DataFrame(columns = ['d_total_loss', 'g_total_loss'])
-def train_FL(g_model, d_model, real_img, W, H, n_epochs=100, n_batch=20, last_chk_point=0, folder='eZ_generator'):
+def train_FL(g_model, d_model, real_img, W, H, n_epochs=100, n_batch=20, last_chk_point=0, folder='SN_generator'):
     bat_per_epo = int(real_img.shape[0] / n_batch)
     half_batch = int(n_batch / 2)
     
@@ -282,10 +277,10 @@ def train_FL(g_model, d_model, real_img, W, H, n_epochs=100, n_batch=20, last_ch
 # Start training
 W = 40
 H = 32
-n_epochs=3001
+n_epochs=500
 n_batch=64
-last_chk_point=0
-folder='eZ_Generator' #Text given here is used for creating new folder name where the models will be saved
+last_chk_point=0 
+folder='SN_Generator' #Text given here is used for creating new folder name where the models will be saved
 
 train_FL(g_model, d_model, real_img, W, H, n_epochs, n_batch, last_chk_point, folder)
 
